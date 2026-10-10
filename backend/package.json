@@ -1,0 +1,25 @@
+{
+  "name": "watersaathi-backend",
+  "version": "1.0.0",
+  "description": "Serverless backend API, matching engine, and DynamoDB data layer for WaterSaathi",
+  "type": "module",
+  "main": "src/local-server.js",
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "start": "node src/local-server.js",
+    "seed": "node ../scripts/seed-demo-data.js"
+  },
+  "keywords": [
+    "watersaathi",
+    "water-tanker",
+    "aws-lambda",
+    "dynamodb",
+    "serverless"
+  ],
+  "author": "WaterSaathi Engineering Team",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.500.0",
+    "@aws-sdk/lib-dynamodb": "^3.500.0"
+  }
+}

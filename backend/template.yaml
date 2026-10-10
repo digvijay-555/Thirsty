@@ -1,0 +1,308 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  WaterSaathi Backend
+  Serverless REST API, Matching Engine, and DynamoDB Tables for Community Water Tanker Access.
+
+Globals:
+  Function:
+    Timeout: 15
+    MemorySize: 256
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        TANKERS_TABLE: !Ref TankersTable
+        REQUESTS_TABLE: !Ref RequestsTable
+        BOOKINGS_TABLE: !Ref BookingsTable
+        REPORTS_TABLE: !Ref ShortageReportsTable
+        CORS_ALLOW_ORIGIN: '*'
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Idempotency-Key'"
+      AllowOrigin: "'*'"
+
+Resources:
+  # ==========================================
+  # DynamoDB Tables
+  # ==========================================
+  TankersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "WaterSaathi-Tankers-${AWS::StackName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: tankerId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: tankerId
+          KeyType: HASH
+
+  RequestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "WaterSaathi-Requests-${AWS::StackName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: requestId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: requestId
+          KeyType: HASH
+
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "WaterSaathi-Bookings-${AWS::StackName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: bookingId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bookingId
+          KeyType: HASH
+
+  ShortageReportsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "WaterSaathi-ShortageReports-${AWS::StackName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: reportId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: reportId
+          KeyType: HASH
+
+  # ==========================================
+  # Lambda Functions & API Gateway Routes
+  # ==========================================
+
+  # 1. Tanker Discovery: GET /tankers
+  TankerDiscoveryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/tankers/discovery.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TankersTable
+      Events:
+        GetTankers:
+          Type: Api
+          Properties:
+            Path: /tankers
+            Method: GET
+
+  # 2. Tanker Location: POST /tankers/{id}/location
+  TankerLocationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/tankers/location.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TankersTable
+      Events:
+        UpdateLocation:
+          Type: Api
+          Properties:
+            Path: /tankers/{id}/location
+            Method: POST
+
+  # 3. Create Request: POST /requests
+  RequestCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/requests/create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref TankersTable
+      Events:
+        CreateRequest:
+          Type: Api
+          Properties:
+            Path: /requests
+            Method: POST
+
+  # 4. Get Request: GET /requests/{id}
+  RequestGetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/requests/get.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref RequestsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BookingsTable
+      Events:
+        GetRequest:
+          Type: Api
+          Properties:
+            Path: /requests/{id}
+            Method: GET
+
+  # 5. Join Pool: POST /requests/{id}/join-pool
+  RequestJoinPoolFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/requests/pool.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TankersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingsTable
+      Events:
+        JoinPool:
+          Type: Api
+          Properties:
+            Path: /requests/{id}/join-pool
+            Method: POST
+
+  # 6. List Bookings: GET /bookings
+  BookingListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/bookings/list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref BookingsTable
+      Events:
+        ListBookings:
+          Type: Api
+          Properties:
+            Path: /bookings
+            Method: GET
+
+  # 7. Accept Booking: POST /bookings/{id}/accept
+  BookingAcceptFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/bookings/accept.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TankersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        AcceptBooking:
+          Type: Api
+          Properties:
+            Path: /bookings/{id}/accept
+            Method: POST
+
+  # 8. Reject Booking: POST /bookings/{id}/reject
+  BookingRejectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/bookings/reject.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+      Events:
+        RejectBooking:
+          Type: Api
+          Properties:
+            Path: /bookings/{id}/reject
+            Method: POST
+
+  # 9. Update Booking Status: POST /bookings/{id}/status
+  BookingStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/bookings/status.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RequestsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TankersTable
+      Events:
+        UpdateStatus:
+          Type: Api
+          Properties:
+            Path: /bookings/{id}/status
+            Method: POST
+
+  # 10. Shortage Report Create: POST /shortage-reports
+  ShortageReportCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/reports/create.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShortageReportsTable
+      Events:
+        CreateReport:
+          Type: Api
+          Properties:
+            Path: /shortage-reports
+            Method: POST
+
+  # 11. Shortage Report List: GET /admin/shortage-reports
+  ShortageReportListFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/reports/list.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ShortageReportsTable
+      Events:
+        ListReports:
+          Type: Api
+          Properties:
+            Path: /admin/shortage-reports
+            Method: GET
+
+  # 12. Shortage Report Status: POST /admin/shortage-reports/{id}/status
+  ShortageReportStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/reports/status.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ShortageReportsTable
+      Events:
+        UpdateReportStatus:
+          Type: Api
+          Properties:
+            Path: /admin/shortage-reports/{id}/status
+            Method: POST
+
+Outputs:
+  WaterSaathiApiEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  TankersTableName:
+    Description: "Tankers DynamoDB Table Name"
+    Value: !Ref TankersTable
+  RequestsTableName:
+    Description: "Requests DynamoDB Table Name"
+    Value: !Ref RequestsTable
+  BookingsTableName:
+    Description: "Bookings DynamoDB Table Name"
+    Value: !Ref BookingsTable
+  ShortageReportsTableName:
+    Description: "Shortage Reports DynamoDB Table Name"
+    Value: !Ref ShortageReportsTable
